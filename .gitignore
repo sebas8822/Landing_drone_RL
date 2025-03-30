@@ -1,3 +1,5 @@
 # Ignore the data directory
 build/
 drone_2d_custom_gym_env.egg-info/
+examples/logs/drone_ppo/
+examples/models/
