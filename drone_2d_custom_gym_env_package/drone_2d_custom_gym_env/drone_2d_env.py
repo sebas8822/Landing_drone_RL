@@ -31,21 +31,20 @@ class Drone2dEnv(gym.Env):
         "render.options": ["render_path", "render_shade", "shade_distance_m"],
     }
 
-    
     def __init__(
         self,
-        render_sim: bool = False,              # If True, initializes Pygame and enables visual rendering. Set to False for faster training.
-        max_steps: int = 1000,                 # Maximum number of simulation steps allowed per episode before termination.
-        render_path: bool = True,              # If True (and render_sim=True), draws the drone's trajectory history.
-        render_shade: bool = True,             # If True (and render_sim=True), renders faded drone images ("shades") along the path.
-        shade_distance_m: float = 2.0,         # Distance (meters) the drone must travel before a new shade is rendered.
-        moving_platform: bool = False,         # If True, the landing platform will move horizontally.
-        platform_speed: float = 1.5,           # Horizontal speed (m/s) of the platform IF moving_platform is True.
-        initial_pos_random_range_m: float = 5.0,# Half-width/height (meters) of the square zone for randomizing the drone's starting position. Set to 0 for fixed start.
-        max_allowed_tilt_angle_rad: float = np.pi / 2.0, # Maximum absolute tilt angle (radians, from vertical) before 'lost_control' termination (default: 90 degrees).
-        enable_wind: bool = True,              # If True, applies wind forces during the simulation.
-        reward_landing: float = 100.0,         # Reward for landing if is incresed increase the interest to do it max 500.0 
-        reward_un_landing: float = 20.0       # Reward for unstable landing if is incresed increase the interest to do it max 100.0 
+        render_sim: bool = False,
+        max_steps: int = 1000,
+        render_path: bool = True,
+        render_shade: bool = True,
+        shade_distance_m: float = 2.0,
+        moving_platform: bool = False,
+        platform_speed: float = 1.5,
+        initial_pos_random_range_m: float = 5.0,
+        max_allowed_tilt_angle_rad: float = np.pi / 2.0,
+        enable_wind: bool = True,
+        reward_landing: float = 100.0,
+        reward_un_landing: float = 20.0,  # Reward for unstable landing if is incresed increase the interest to do it max 100.0
     ):
         """
         Initializes the Drone Landing Environment.
@@ -71,7 +70,9 @@ class Drone2dEnv(gym.Env):
         self.render_shade = render_shade
         self.shade_distance_m = shade_distance_m
         self.moving_platform = moving_platform
-        self.platform_speed = platform_speed if moving_platform else 0.0 # Store actual speed based on flag
+        self.platform_speed = (
+            platform_speed if moving_platform else 0.0
+        )  # Store actual speed based on flag
         self.initial_pos_random_range_m = initial_pos_random_range_m
         self.max_allowed_tilt_angle_rad = max_allowed_tilt_angle_rad
         self.enable_wind = enable_wind
@@ -79,92 +80,168 @@ class Drone2dEnv(gym.Env):
         self.reward_un_landing = reward_un_landing
 
         # === Platform Specific State ===
-        self.platform_direction = 1 # Initial direction (1=right, -1=left), randomized in reset if moving
-        self.pad_body = None # Reference to the Pymunk body of the landing pad
+        self.platform_direction = (
+            1  # Initial direction (1=right, -1=left), randomized in reset if moving
+        )
+        self.pad_body = None  # Reference to the Pymunk body of the landing pad
 
         # === Environment Physics Parameters ===
-        self.gravity_mag: float = 9.81                  # Acceleration due to gravity (m/s^2)
-        self.wind_speed: float = 5.0 if self.enable_wind else 0.0 # Actual wind speed used (m/s), depends on enable_wind flag
-        self.wind_force_coefficient: float = 0.5        # Simple factor multiplied by wind speed and drone width to calculate wind force magnitude. Tune based on desired wind effect strength.
+        self.gravity_mag: float = 9.81  # Acceleration due to gravity (m/s^2)
+        self.wind_speed: float = (
+            5.0 if self.enable_wind else 0.0
+        )  # Actual wind speed used (m/s), depends on enable_wind flag
+        self.wind_force_coefficient: float = (
+            0.5  # Simple factor multiplied by wind speed and drone width to calculate wind force magnitude. Tune based on desired wind effect strength.
+        )
         # self.wind_direction is initialized in seed() using np_random for reproducibility
 
         # === Drone Physical Parameters ===
-        self.lander_mass: float = 1.0                   # Total mass of the drone (kg)
-        self.lander_width: float = 1.0                  # Total width of the drone (meters, e.g., motor tip to motor tip)
-        self.lander_height: float = 0.2                 # Height/diameter of the motor components (meters), used for visual representation and joint placement.
-        self.initial_Battery: float = 100.0             # Starting amount of battery charge (arbitrary units)
-        self.max_thrust: float = 15.0                   # Maximum thrust force (Newtons) EACH motor can produce. Should be > (mass * g / 2) to hover.
-        self.thrust_noise_std_dev: float = 0.05         # Standard deviation of Gaussian noise added to thrust commands (as a fraction of max_thrust). Adds realism/robustness.
-        self.Battery_consumption_rate: float = 0.1      # Units of battery consumed per Newton-second of total thrust applied. Controls flight time.
+        self.lander_mass: float = 1.0  # Total mass of the drone (kg)
+        self.lander_width: float = (
+            1.0  # Total width of the drone (meters, e.g., motor tip to motor tip)
+        )
+        self.lander_height: float = (
+            0.2  # Height/diameter of the motor components (meters), used for visual representation and joint placement.
+        )
+        self.initial_Battery: float = (
+            100.0  # Starting amount of battery charge (arbitrary units)
+        )
+        self.max_thrust: float = (
+            15.0  # Maximum thrust force (Newtons) EACH motor can produce. Should be > (mass * g / 2) to hover.
+        )
+        self.thrust_noise_std_dev: float = (
+            0.05  # Standard deviation of Gaussian noise added to thrust commands (as a fraction of max_thrust). Adds realism/robustness.
+        )
+        self.Battery_consumption_rate: float = (
+            0.1  # Units of battery consumed per Newton-second of total thrust applied. Controls flight time.
+        )
 
         # === World Dimensions ===
-        self.world_width: float = 50.0                  # Width of the simulation area (meters)
-        self.world_height: float = 50.0                 # Height of the simulation area (meters)
-        self.ground_height: float = 10.0                # Vertical position (Y-coordinate) of the ground surface (meters)
+        self.world_width: float = 50.0  # Width of the simulation area (meters)
+        self.world_height: float = 50.0  # Height of the simulation area (meters)
+        self.ground_height: float = (
+            10.0  # Vertical position (Y-coordinate) of the ground surface (meters)
+        )
 
         # === Landing Task Parameters ===
-        self.landing_pad_width: float = 5.0             # Width of the landing platform (meters)
-        self.landing_pad_height: float = 0.5            # Thickness of the landing platform (meters)
-        self.initial_landing_target_x: float = self.world_width / 2.0 # Initial X-coordinate of the landing platform's center (meters). Platform resets here if static.
-        self.landing_target_y: float = self.ground_height # Y-coordinate of the BOTTOM of the landing platform (meters). It sits on the ground.
-        self.max_safe_landing_speed: float = 1.5        # Maximum impact velocity magnitude (m/s) allowed for a safe landing.
-        self.max_safe_landing_angle: float = 0.2        # Maximum absolute tilt angle (radians, approx 11 deg) allowed from vertical for a safe landing.
+        self.landing_pad_width: float = 5.0  # Width of the landing platform (meters)
+        self.landing_pad_height: float = (
+            0.5  # Thickness of the landing platform (meters)
+        )
+        self.initial_landing_target_x: float = (
+            self.world_width / 2.0
+        )  # Initial X-coordinate of the landing platform's center (meters). Platform resets here if static.
+        self.landing_target_y: float = (
+            self.ground_height
+        )  # Y-coordinate of the BOTTOM of the landing platform (meters). It sits on the ground.
+        self.max_safe_landing_speed: float = (
+            1.5  # Maximum impact velocity magnitude (m/s) allowed for a safe landing.
+        )
+        self.max_safe_landing_angle: float = (
+            0.2  # Maximum absolute tilt angle (radians, approx 11 deg) allowed from vertical for a safe landing.
+        )
 
         # === Simulation Timing ===
-        self.frames_per_second: int = 50                # Target physics update rate (Hz). Also used for default rendering FPS.
-        self.dt: float = 1.0 / self.frames_per_second   # Simulation time step (seconds).
+        self.frames_per_second: int = (
+            50  # Target physics update rate (Hz). Also used for default rendering FPS.
+        )
+        self.dt: float = 1.0 / self.frames_per_second  # Simulation time step (seconds).
 
         # === Internal Simulation State (Reset in self.reset()) ===
-        self.current_step: int = 0                      # Counter for steps within the current episode.
-        self.landed_safely: bool = False                # Flag indicating successful landing in the current episode.
-        self.crashed: bool = False                      # Flag indicating a crash (ground or hard pad collision) in the current episode.
-        self.Battery_empty: bool = False                # Flag indicating the battery ran out in the current episode.
-        self.out_of_bounds: bool = False                # Flag indicating the drone went outside world boundaries.
-        self.lost_control: bool = False                 # Flag indicating the drone exceeded the tilt angle limit.
-        self.current_left_thrust_applied: float = 0.0   # Actual thrust applied by the left motor in the last step (for rendering).
-        self.current_right_thrust_applied: float = 0.0  # Actual thrust applied by the right motor in the last step (for rendering).
-        self.info: dict = {}                            # Dictionary for auxiliary diagnostic information returned by step().
+        self.current_step: int = 0  # Counter for steps within the current episode.
+        self.landed_safely: bool = (
+            False  # Flag indicating successful landing in the current episode.
+        )
+        self.crashed: bool = (
+            False  # Flag indicating a crash (ground or hard pad collision) in the current episode.
+        )
+        self.Battery_empty: bool = (
+            False  # Flag indicating the battery ran out in the current episode.
+        )
+        self.out_of_bounds: bool = (
+            False  # Flag indicating the drone went outside world boundaries.
+        )
+        self.lost_control: bool = (
+            False  # Flag indicating the drone exceeded the tilt angle limit.
+        )
+        self.current_left_thrust_applied: float = (
+            0.0  # Actual thrust applied by the left motor in the last step (for rendering).
+        )
+        self.current_right_thrust_applied: float = (
+            0.0  # Actual thrust applied by the right motor in the last step (for rendering).
+        )
+        self.info: dict = (
+            {}
+        )  # Dictionary for auxiliary diagnostic information returned by step().
 
         # === Rendering Specific State (Reset in self.reset()) ===
-        self.screen_width_px: int = 800                 # Width of the Pygame window in pixels.
-        self.screen_height_px: int = 800                # Height of the Pygame window in pixels.
-        self.pixels_per_meter: float = min(self.screen_width_px / self.world_width, self.screen_height_px / self.world_height) # Scale factor for rendering meters->pixels.
-        self.screen: pygame.Surface | None = None       # Pygame display surface object.
-        self.clock: pygame.time.Clock | None = None     # Pygame clock object for controlling FPS.
-        self.font: pygame.font.Font | None = None       # Pygame font object for rendering text.
-        self.shade_image: pygame.Surface | None = None  # Loaded and scaled Pygame surface for the drone shade image.
-        self.flight_path_px: list = []                  # List storing historical drone positions in PIXEL coordinates for path rendering.
-        self.path_drone_shade_info: list = []           # List storing [world_x, world_y, angle_rad] for each rendered shade.
-        self.last_shade_pos: Vec2d | None = None        # World position (Vec2d) where the last shade was dropped.
+        self.screen_width_px: int = 800  # Width of the Pygame window in pixels.
+        self.screen_height_px: int = 800  # Height of the Pygame window in pixels.
+        self.pixels_per_meter: float = min(
+            self.screen_width_px / self.world_width,
+            self.screen_height_px / self.world_height,
+        )  # Scale factor for rendering meters->pixels.
+        self.screen: pygame.Surface | None = None  # Pygame display surface object.
+        self.clock: pygame.time.Clock | None = (
+            None  # Pygame clock object for controlling FPS.
+        )
+        self.font: pygame.font.Font | None = (
+            None  # Pygame font object for rendering text.
+        )
+        self.shade_image: pygame.Surface | None = (
+            None  # Loaded and scaled Pygame surface for the drone shade image.
+        )
+        self.flight_path_px: list = (
+            []
+        )  # List storing historical drone positions in PIXEL coordinates for path rendering.
+        self.path_drone_shade_info: list = (
+            []
+        )  # List storing [world_x, world_y, angle_rad] for each rendered shade.
+        self.last_shade_pos: Vec2d | None = (
+            None  # World position (Vec2d) where the last shade was dropped.
+        )
 
-        # Initialize Pygame if rendering is enabled
+        # --- Persistent Episode Counters ---
+        self.episode_count: int = 0  # Total episodes
+        self.ep_count_landed: int = 0  # Landed
+        self.ep_count_crashed: int = 0  # Crashed
+        self.ep_count_lost_control: int = 0  # LoC
+        self.ep_count_out_of_bounds: int = 0  # OoB
+        self.ep_count_battery_empty: int = 0  # Bat
+        self.ep_count_timeout: int = 0  # Timeout
         if self.render_sim:
             self.init_pygame()
 
-        # === Action & Observation Spaces (Gym Interface) ===
+        # === Action & Observation Spaces ===
         min_action = np.array([-1.0, -1.0], dtype=np.float32)
         max_action = np.array([1.0, 1.0], dtype=np.float32)
-        self.action_space = spaces.Box(low=min_action, high=max_action, dtype=np.float32) # Continuous actions for left/right thrust [-1, 1]
+        self.action_space = spaces.Box(
+            low=min_action, high=max_action, dtype=np.float32
+        )
+        obs_dim = 11
+        if self.moving_platform:
+            obs_dim = 12
+        obs_low_list = [-1, -1, -1, -1, -1, -1, 0, -1, -1, -1, 0.0]
+        obs_high_list = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.0]
+        if self.moving_platform:
+            obs_low_list.append(-1)
+            obs_high_list.append(1)
+        obs_low = np.array(obs_low_list, dtype=np.float32)
+        obs_high = np.array(obs_high_list, dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=obs_low, high=obs_high, dtype=np.float32
+        )
+        print(f"Observation Space Size: {self.observation_space.shape}")
 
-        obs_dim = 11 # Base + Sensor info
-        if self.moving_platform: obs_dim = 12 # Add platform velocity
-        obs_low_list = [-1,-1,-1,-1,-1,-1,0,-1,-1,-1,0.0]; obs_high_list = [1,1,1,1,1,1,1,1,1,1,1.0]
-        if self.moving_platform: obs_low_list.append(-1); obs_high_list.append(1)
-        obs_low = np.array(obs_low_list, dtype=np.float32); obs_high = np.array(obs_high_list, dtype=np.float32)
-        self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32) # Define bounds and shape of the observation vector
-        print(f"Observation Space Size: {self.observation_space.shape}") # Informative print
-
-        # --- Initialize Physics Space & Objects ---
-        self.space: pymunk.Space | None = None          # Pymunk physics space object.
-        self.drone: Drone | None = None                 # Instance of the Drone class.
-        self.landing_pad_shape: pymunk.Shape | None = None # Pymunk shape for the landing pad.
-        self.ground_shape: pymunk.Shape | None = None   # Pymunk shape for the ground.
-
-        # Initialize random number generator and perform initial reset
+        # --- Initialize Physics ---
+        self.space = None
+        self.drone = None
+        self.landing_pad_shape = None
+        self.ground_shape = None
         self.seed()
-        self.reset() # Creates space, drone, pad, etc. and returns initial observation
+        self.reset()  # Initial reset
 
-    # seed, _world_to_screen, _screen_to_world, init_pygame, init_pymunk, _add_position_to_path, _add_drone_shade, collision_begin, collision_separate methods remain the same...
+    # seed, _world_to_screen, _screen_to_world, init_pygame, init_pymunk, _add_position_to_path, _add_drone_shade, collision_begin, collision_separate, _apply_forces, _get_observation, _calculate_reward methods remain the same...
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         self.wind_direction = self.np_random.uniform(0, 2 * np.pi)
@@ -282,7 +359,7 @@ class Drone2dEnv(gym.Env):
             self.lander_mass,
             self.space,
         )
-        print(f"Drone starting at: ({initial_x:.2f}, {initial_y:.2f}) m")
+        # print(f"Drone starting at: ({initial_x:.2f}, {initial_y:.2f}) m") # Less verbose
         for shape in self.drone.shapes:
             shape.collision_type = self.drone_collision_type
             shape.friction = 0.7
@@ -330,22 +407,19 @@ class Drone2dEnv(gym.Env):
                 and angle < self.max_safe_landing_angle
             ):
                 self.landed_safely = True
-                print(f"Step {self.current_step}: LANDED SAFELY!")
+                # print(f"Step {self.current_step}: LANDED SAFELY!") # Less verbose
             else:
                 self.crashed = True
-                print(
-                    f"Step {self.current_step}: CRASHED on pad! Speed: {velocity.length:.2f}, Angle: {angle:.2f}"
-                )
+                # print(f"Step {self.current_step}: CRASHED on pad! Speed: {velocity.length:.2f}, Angle: {angle:.2f}") # Less verbose
         else:
             self.crashed = True
-            print(f"Step {self.current_step}: CRASHED on ground!")
+            # print(f"Step {self.current_step}: CRASHED on ground!") # Less verbose
         return True
 
     def collision_separate(self, arbiter, space, data):
         self.drone_contacts -= 1
         self.drone_contacts = max(0, self.drone_contacts)
 
-    # MODIFIED _apply_forces
     def _apply_forces(self, action):
         left_thrust_cmd = (action[0] + 1.0) / 2.0 * self.max_thrust
         right_thrust_cmd = (action[1] + 1.0) / 2.0 * self.max_thrust
@@ -359,16 +433,10 @@ class Drone2dEnv(gym.Env):
         right_thrust = np.clip(right_thrust_cmd + right_noise, 0, self.max_thrust)
         applied_left_thrust = left_thrust if self.current_Battery > 0 else 0
         applied_right_thrust = right_thrust if self.current_Battery > 0 else 0
-
-        # Apply thrust
         if self.drone:
             self.drone.apply_thrust(applied_left_thrust, applied_right_thrust)
-
-        # Store applied thrust for rendering
         self.current_left_thrust_applied = applied_left_thrust
         self.current_right_thrust_applied = applied_right_thrust
-
-        # Consume Battery
         Battery_consumed = (
             (applied_left_thrust + applied_right_thrust)
             * self.Battery_consumption_rate
@@ -380,19 +448,16 @@ class Drone2dEnv(gym.Env):
         if not self.Battery_empty and self.current_Battery == 0:
             print(f"Step {self.current_step}: Battery EMPTY!")
             self.Battery_empty = True
-
-        # Apply Wind only if enabled - MODIFIED
         if self.enable_wind and self.wind_speed > 0:
             wind_force_vec = Vec2d(self.wind_speed, 0).rotated(self.wind_direction)
             wind_force = (
                 wind_force_vec * self.wind_force_coefficient * self.lander_width
             )
-            if self.drone:
-                self.drone.body.apply_force_at_world_point(
-                    wind_force, self.drone.body.position
-                )
+        if self.drone:
+            self.drone.body.apply_force_at_world_point(
+                wind_force, self.drone.body.position
+            )
 
-    # _get_observation, _calculate_reward, _check_termination, _update_platform_position, step methods remain the same...
     def _get_observation(self):
         platform_pos_x = self.initial_landing_target_x
         platform_target_y = self.landing_target_y + self.landing_pad_height
@@ -515,9 +580,9 @@ class Drone2dEnv(gym.Env):
                 and drone_body.velocity.length < 0.1
                 and abs(drone_body.angular_velocity) < 0.1
             ):
-                reward += self.reward_landing # this reward is for landing 
+                reward += self.reward_landing
             else:
-                reward += self.reward_un_landing # unstable landing
+                reward += self.reward_un_landing
         elif self.crashed:
             reward -= 50.0
         elif self.lost_control:
@@ -532,48 +597,6 @@ class Drone2dEnv(gym.Env):
             reward -= 10.0
         return reward
 
-    def _check_termination(self):
-        done = False
-        drone_pos = None
-        if self.drone and self.drone.body:
-            drone_pos = self.drone.body.position
-            angle_rad = self.drone.body.angle
-        else:
-            print("Warning: Drone object missing in _check_termination.")
-            done = True
-            self.crashed = True
-        if not done and drone_pos:
-            if not (
-                0 < drone_pos.x < self.world_width
-                and 0 < drone_pos.y < self.world_height
-            ):
-                if not self.out_of_bounds:
-                    print(f"Step {self.current_step}: OUT OF BOUNDS!")
-                    self.out_of_bounds = True
-                    done = True
-            if not done:
-                angle_norm = (angle_rad + np.pi) % (2 * np.pi) - np.pi
-                if abs(angle_norm) > self.max_allowed_tilt_angle_rad:
-                    if not self.lost_control:
-                        print(f"Step {self.current_step}: LOST CONTROL!")
-                        self.lost_control = True
-                        done = True
-        if not done and self.Battery_empty and not (self.landed_safely or self.crashed):
-            done = True
-        if not done and (self.landed_safely or self.crashed):
-            done = True
-        if not done and self.current_step >= self.max_steps:
-            if not (
-                self.landed_safely
-                or self.crashed
-                or self.out_of_bounds
-                or self.lost_control
-                or self.Battery_empty
-            ):
-                print(f"Step {self.current_step}: MAX STEPS REACHED!")
-            done = True
-        return done
-
     def _update_platform_position(self):
         if not self.moving_platform or self.pad_body is None:
             return
@@ -586,6 +609,84 @@ class Drone2dEnv(gym.Env):
             self.platform_direction = -1
         self.pad_body.velocity = Vec2d(self.platform_speed * self.platform_direction, 0)
 
+    # MODIFIED _check_termination (to increment counters)
+    def _check_termination(self):
+        done = False
+        terminal_condition_met = False  # Flag to ensure counter increments only once
+
+        # Check drone state only if drone exists
+        if self.drone and self.drone.body:
+            drone_pos = self.drone.body.position
+            angle_rad = self.drone.body.angle
+
+            # Check bounds
+            if not (
+                0 < drone_pos.x < self.world_width
+                and 0 < drone_pos.y < self.world_height
+            ):
+                if not self.out_of_bounds:
+                    print(f"Step {self.current_step}: OUT OF BOUNDS!")
+                    self.ep_count_out_of_bounds += 1  # Increment Counter
+                    terminal_condition_met = True
+                self.out_of_bounds = True
+                done = True
+
+            # Check tilt angle (Loss of Control)
+            if not done:  # Check only if not already terminated
+                angle_norm = (angle_rad + np.pi) % (2 * np.pi) - np.pi
+                if abs(angle_norm) > self.max_allowed_tilt_angle_rad:
+                    if not self.lost_control:
+                        print(f"Step {self.current_step}: LOST CONTROL!")
+                        self.ep_count_lost_control += 1  # Increment Counter
+                        terminal_condition_met = True
+                    self.lost_control = True
+                    done = True
+        else:
+            # If drone doesn't exist, something went wrong, terminate
+            print(
+                "Warning: Drone object missing in _check_termination, terminating episode."
+            )
+            if not self.crashed:  # Count as crash if not already flagged
+                self.ep_count_crashed += 1
+                terminal_condition_met = True
+            self.crashed = True
+            done = True
+
+        # Check other conditions only if not already done
+        if not done and self.Battery_empty and not (self.landed_safely or self.crashed):
+            # Battery empty is the primary reason only if not already landed/crashed
+            if not terminal_condition_met:
+                self.ep_count_battery_empty += 1  # Increment Counter
+                terminal_condition_met = True
+            done = True
+
+        if not done and (self.landed_safely or self.crashed):
+            # Landing/Crash flags are set earlier (collision_begin). Increment counters there?
+            # Let's increment here for simplicity, checking flags *after* they might be set.
+            if self.landed_safely and not terminal_condition_met:
+                self.ep_count_landed += 1  # Increment Counter
+                terminal_condition_met = True
+            elif (
+                self.crashed
+                and not terminal_condition_met
+                and not self.lost_control
+                and not self.out_of_bounds
+            ):
+                # Only count crash here if not already terminated by LoC or OOB
+                self.ep_count_crashed += 1  # Increment Counter
+                terminal_condition_met = True
+            done = True
+
+        if not done and self.current_step >= self.max_steps:
+            if not terminal_condition_met:  # Check if timeout is the primary reason
+                print(f"Step {self.current_step}: MAX STEPS REACHED!")
+                self.ep_count_timeout += 1  # Increment Counter
+                terminal_condition_met = True
+            done = True
+
+        return done
+
+    # step remains the same (calls _check_termination)
     def step(self, action):
         if self.drone is None:
             dummy_obs = np.zeros(
@@ -595,16 +696,43 @@ class Drone2dEnv(gym.Env):
         self._update_platform_position()
         self._apply_forces(action)
         self.space.step(self.dt)
+
+        # --- Calculate distance AND target point for info dict ---
+        platform_pos_x = self.initial_landing_target_x
+        platform_target_y = self.landing_target_y + self.landing_pad_height
+        if self.pad_body:
+            platform_pos_x = self.pad_body.position.x
+
+        target_pos_world = (platform_pos_x, platform_target_y)  # Store target point
+
+        distance_to_target_m = -1.0  # Default if drone doesn't exist
+        if self.drone and self.drone.body:
+            drone_pos = self.drone.body.position
+            world_vector_to_target = Vec2d(
+                target_pos_world[0] - drone_pos.x, target_pos_world[1] - drone_pos.y
+            )
+            distance_to_target_m = world_vector_to_target.length
+        # --- End calculation for info ---
+
         current_pos = self.drone.body.position
         self._add_position_to_path()
         if self.render_shade and self.last_shade_pos is not None:
             if current_pos.get_distance(self.last_shade_pos) > self.shade_distance_m:
                 self._add_drone_shade()
+
         observation = self._get_observation()
         done = self._check_termination()
         reward = self._calculate_reward(observation)
         self.current_step += 1
-        drone_body = self.drone.body
+        drone_body = self.drone.body if self.drone else None
+
+        # Ensure drone_body exists before accessing attributes for info
+        raw_pos_tuple = tuple(drone_body.position) if drone_body else (0.0, 0.0)
+        raw_vel_tuple = tuple(drone_body.velocity) if drone_body else (0.0, 0.0)
+        raw_angle_val = drone_body.angle if drone_body else 0.0
+        raw_ang_vel_val = drone_body.angular_velocity if drone_body else 0.0
+
+        # Update info dictionary
         self.info = {
             "Battery": self.current_Battery,
             "landed": self.landed_safely,
@@ -613,21 +741,23 @@ class Drone2dEnv(gym.Env):
             "Battery_empty": self.Battery_empty,
             "lost_control": self.lost_control,
             "steps": self.current_step,
-            "raw_pos": tuple(drone_body.position),
-            "raw_vel": tuple(drone_body.velocity),
-            "raw_angle_rad": drone_body.angle,
-            "raw_angular_vel": drone_body.angular_velocity,
-            "platform_pos_x": (
-                self.pad_body.position.x
-                if self.pad_body
-                else self.initial_landing_target_x
-            ),
+            "raw_pos": raw_pos_tuple,
+            "raw_vel": raw_vel_tuple,
+            "raw_angle_rad": raw_angle_val,
+            "raw_angular_vel": raw_ang_vel_val,
+            "platform_pos_x": platform_pos_x,  # Use calculated platform pos
             "platform_vel_x": self.pad_body.velocity.x if self.pad_body else 0.0,
+            "distance_to_target": distance_to_target_m,
+            "target_pos_world": target_pos_world,  # ADDED target coordinates
         }
         return observation, reward, done, self.info
 
-    # reset remains the same
+    # MODIFIED reset
     def reset(self):
+        # --- Increment Episode Counter ---
+        self.episode_count += 1
+        # --- End Increment ---
+
         if self.space:
             for body in list(self.space.bodies):
                 self.space.remove(body)
@@ -638,6 +768,8 @@ class Drone2dEnv(gym.Env):
         self.space = None
         self.drone = None
         self.pad_body = None
+
+        # Reset PER-EPISODE state vars (DO NOT RESET COUNTERS)
         self.current_step = 0
         self.landed_safely = False
         self.crashed = False
@@ -648,25 +780,39 @@ class Drone2dEnv(gym.Env):
         self.drone_contacts = 0
         self.current_left_thrust_applied = 0.0
         self.current_right_thrust_applied = 0.0
+
+        # Reset path/shade
         self.flight_path_px = []
         self.path_drone_shade_info = []
         self.last_shade_pos = None
+
+        # Randomize wind/platform direction
         self.wind_direction = self.np_random.uniform(0, 2 * np.pi)
         if self.moving_platform:
             self.platform_direction = self.np_random.choice([-1, 1])
         else:
             self.platform_direction = 1
+
+        # Re-init pymunk
         self.init_pymunk()
+        # Add initial path/shade
         if self.drone:
             self._add_position_to_path()
             self._add_drone_shade()
         else:
             print("Error: Drone not created during reset.")
-        # --- MODIFIED Print Statement ---
-        print(
-            f"Environment Reset. Wind Enabled: {self.enable_wind}, Wind Dir: {np.degrees(self.wind_direction):.1f} deg. Moving Platform: {self.moving_platform}"
-        )
-        # --- End Modification ---
+
+        # --- Print Reset Info (less frequent maybe) ---
+        if (
+            self.episode_count % 10 == 1 or self.episode_count <= 1
+        ):  # Print every 10 eps or first ep
+            print(f"\n--- Resetting Episode {self.episode_count} ---")
+            print(
+                f"Wind Enabled: {self.enable_wind}, Wind Dir: {np.degrees(self.wind_direction):.1f} deg. Moving Platform: {self.moving_platform}"
+            )
+        # --- End Print ---
+
+        # Return initial observation
         if self.drone:
             return self._get_observation()
         else:
@@ -674,7 +820,6 @@ class Drone2dEnv(gym.Env):
                 self.observation_space.shape, dtype=self.observation_space.dtype
             )
 
-    # MODIFIED render
     def render(self, mode="human"):
         if not self.render_sim or self.screen is None:
             return
@@ -694,7 +839,8 @@ class Drone2dEnv(gym.Env):
 
         self.screen.fill((210, 230, 250))  # Background
 
-        # Draw Initial Spawn Zone
+        # ... (Keep Drawing Spawn Zone, Shades, Paths, Ground, Pad, Drone, Vectors, Wind) ...
+        # --- Draw Initial Spawn Zone ---
         if self.initial_pos_random_range_m > 0:
             center_x_m = self.world_width / 2.0
             center_y_m = self.world_height * 0.8
@@ -711,8 +857,7 @@ class Drone2dEnv(gym.Env):
                 top_left_px[0], top_left_px[1], rect_width_px, rect_height_px
             )
             pygame.draw.rect(self.screen, zone_color, spawn_rect, zone_thickness)
-
-        # Draw Shades
+        # --- Draw Shades FIRST ---
         if self.render_shade and self.shade_image:
             for shade_info in self.path_drone_shade_info:
                 try:
@@ -723,11 +868,9 @@ class Drone2dEnv(gym.Env):
                     self.screen.blit(rotated_image, image_rect)
                 except Exception as e:
                     print(f"Error rendering shade: {e}")
-
-        # Draw Paths
+        # --- Draw Paths ---
         if self.render_path and len(self.flight_path_px) > 1:
             pygame.draw.aalines(self.screen, (16, 19, 97), False, self.flight_path_px)
-
         # Draw Ground, Pad, Drone...
         ground_start_px = self._world_to_screen((0, self.ground_height))
         ground_end_px = self._world_to_screen((self.world_width, self.ground_height))
@@ -749,8 +892,7 @@ class Drone2dEnv(gym.Env):
                     color = shape.color if hasattr(shape, "color") else (100, 100, 200)
                     pygame.draw.polygon(self.screen, color, verts_screen)
                     pygame.draw.polygon(self.screen, (0, 0, 0), verts_screen, 1)
-
-        # Draw Motor Force Vectors
+        # --- Draw Motor Force Vectors ---
         if self.drone:
             drone_body = self.drone.body
             max_thrust_render_length_px = 40
@@ -761,7 +903,7 @@ class Drone2dEnv(gym.Env):
                 max_thrust_render_length_px / self.pixels_per_meter
             )
             max_thrust_val = self.max_thrust if self.max_thrust > 1e-6 else 1.0
-            try:  # Left Motor
+            try:
                 left_motor_attach_local = (-self.drone.thrust_arm_length, 0)
                 max_thrust_offset_local = Vec2d(0, max_thrust_render_length_m)
                 current_thrust_offset_local = max_thrust_offset_local * (
@@ -785,7 +927,7 @@ class Drone2dEnv(gym.Env):
                 )
             except Exception as e:
                 print(f"Error drawing left thrust vector: {e}")
-            try:  # Right Motor
+            try:
                 right_motor_attach_local = (self.drone.thrust_arm_length, 0)
                 max_thrust_offset_local = Vec2d(0, max_thrust_render_length_m)
                 current_thrust_offset_local = max_thrust_offset_local * (
@@ -809,9 +951,8 @@ class Drone2dEnv(gym.Env):
                 )
             except Exception as e:
                 print(f"Error drawing right thrust vector: {e}")
-
-        # --- Draw Wind Indicator and Label --- MODIFIED ---
-        if self.enable_wind and self.wind_speed > 0:  # Only draw if wind is enabled
+        # --- Draw Wind Indicator and Label ---
+        if self.enable_wind and self.wind_speed > 0:
             wind_indicator_base_pos = (self.screen_width_px - 70, 50)
             wind_color = (50, 50, 200)
             wind_label_color = (0, 0, 0)
@@ -825,34 +966,55 @@ class Drone2dEnv(gym.Env):
                 self.screen, wind_color, wind_indicator_base_pos, wind_end_px, 3
             )
             pygame.draw.circle(self.screen, wind_color, wind_indicator_base_pos, 5)
-            if self.font:
-                wind_dir_degrees = np.degrees(self.wind_direction) % 360
-                wind_label_text = (
-                    f"Wind: {self.wind_speed:.1f} m/s @ {wind_dir_degrees:.0f}°"
-                )
-                wind_label_surf = self.font.render(
-                    wind_label_text, True, wind_label_color
-                )
-                label_pos = (
-                    wind_indicator_base_pos[0] - wind_label_surf.get_width() - 10,
-                    wind_indicator_base_pos[1] + 5,
-                )
-                self.screen.blit(wind_label_surf, label_pos)
-        # --- End Wind Indicator ---
+        if self.font and self.enable_wind and self.wind_speed > 0:
+            wind_dir_degrees = np.degrees(self.wind_direction) % 360
+            wind_label_text = (
+                f"Wind: {self.wind_speed:.1f} m/s @ {wind_dir_degrees:.0f}°"
+            )
+            wind_label_surf = self.font.render(wind_label_text, True, wind_label_color)
+            label_pos = (
+                wind_indicator_base_pos[0] - wind_label_surf.get_width() - 10,
+                wind_indicator_base_pos[1] + 5,
+            )
+            self.screen.blit(wind_label_surf, label_pos)
 
-        # Draw Info Text
+        # --- Draw Sensor Vector Line --- ADDED ---
+        if self.drone and self.info:  # Check if drone and info exist
+            drone_pos_world = self.info.get("raw_pos")
+            target_pos_world = self.info.get("target_pos_world")
+
+            if drone_pos_world and target_pos_world:  # Check if positions are valid
+                try:
+                    start_screen = self._world_to_screen(drone_pos_world)
+                    end_screen = self._world_to_screen(target_pos_world)
+                    sensor_line_color = (0, 180, 180)  # Cyan color
+                    sensor_line_thickness = 1
+                    # Draw the line
+                    pygame.draw.aaline(
+                        self.screen, sensor_line_color, start_screen, end_screen
+                    )  # Use aaline for anti-aliasing
+                    # Optional: Draw small circles at ends
+                    # pygame.draw.circle(self.screen, sensor_line_color, start_screen, 3)
+                    # pygame.draw.circle(self.screen, (255,0,0), end_screen, 3) # Red target circle
+                except Exception as e:
+                    print(f"Error drawing sensor vector: {e}")
+        # --- End Sensor Vector Line ---
+
+        # --- Draw Info Text ---
         if self.font:
             start_y = 10
             line_height = 20
             text_color = (0, 0, 0)
             status_color_ok = (0, 150, 0)
             status_color_bad = (200, 0, 0)
+            current_y = start_y
+            # Current Step Info
             battery_text = (
-                f"Battery: {self.current_Battery:.1f} / {self.initial_Battery:.0f}"
+                f"Battery: {self.current_Battery:.1f}/{self.initial_Battery:.0f}"
             )
             battery_surf = self.font.render(battery_text, True, text_color)
-            self.screen.blit(battery_surf, (10, start_y))
-            current_y = start_y + line_height
+            self.screen.blit(battery_surf, (10, current_y))
+            current_y += line_height
             status_text = ""
             status_color = status_color_ok
             if self.landed_safely:
@@ -869,14 +1031,20 @@ class Drone2dEnv(gym.Env):
             elif self.Battery_empty:
                 status_text = "Battery Empty!"
                 status_color = status_color_bad
-            elif self.current_step >= self.max_steps:
+            elif self.current_step >= self.max_steps and not (
+                self.landed_safely
+                or self.crashed
+                or self.lost_control
+                or self.out_of_bounds
+                or self.Battery_empty
+            ):
                 status_text = "Time Limit Reached"
                 status_color = status_color_bad
             if status_text:
                 status_surf = self.font.render(status_text, True, status_color)
                 self.screen.blit(status_surf, (10, current_y))
                 current_y += line_height
-            step_text = f"Step: {self.current_step} / {self.max_steps}"
+            step_text = f"Step: {self.current_step}/{self.max_steps}"
             step_surf = self.font.render(step_text, True, text_color)
             self.screen.blit(step_surf, (10, current_y))
             current_y += line_height
@@ -885,21 +1053,47 @@ class Drone2dEnv(gym.Env):
             angle_rad = self.info.get("raw_angle_rad", 0.0)
             angular_vel = self.info.get("raw_angular_vel", 0.0)
             angle_deg = np.degrees(angle_rad) % 360
-            pos_text = f"Pos (X,Y): ({raw_pos[0]:.2f}, {raw_pos[1]:.2f}) m"
+            pos_text = f"Pos(X,Y):({raw_pos[0]:.2f},{raw_pos[1]:.2f})m"
             pos_surf = self.font.render(pos_text, True, text_color)
             self.screen.blit(pos_surf, (10, current_y))
             current_y += line_height
-            vel_text = f"Vel (Vx,Vy): ({raw_vel[0]:.2f}, {raw_vel[1]:.2f}) m/s"
+            vel_text = f"Vel(Vx,Vy):({raw_vel[0]:.2f},{raw_vel[1]:.2f})m/s"
             vel_surf = self.font.render(vel_text, True, text_color)
             self.screen.blit(vel_surf, (10, current_y))
             current_y += line_height
-            angle_text = f"Angle: {angle_deg:.1f}°"
+            angle_text = f"Angle:{angle_deg:.1f}°"
             angle_surf = self.font.render(angle_text, True, text_color)
             self.screen.blit(angle_surf, (10, current_y))
             current_y += line_height
-            ang_vel_text = f"Ang Vel: {angular_vel:.2f} rad/s"
+            ang_vel_text = f"AngVel:{angular_vel:.2f}rad/s"
             ang_vel_surf = self.font.render(ang_vel_text, True, text_color)
             self.screen.blit(ang_vel_surf, (10, current_y))
+            current_y += line_height
+            dist_m = self.info.get("distance_to_target", -1.0)
+            dist_text = (
+                f"Dist Target:{dist_m:.2f}m" if dist_m >= 0 else "Dist Target:N/A"
+            )
+            dist_surf = self.font.render(dist_text, True, text_color)
+            self.screen.blit(dist_surf, (10, current_y))
+            current_y += line_height
+            # Cumulative Stats Text
+            current_y += line_height  # Add gap
+            ep_text = f"Total Episodes: {self.episode_count}"
+            ep_surf = self.font.render(ep_text, True, text_color)
+            self.screen.blit(ep_surf, (10, current_y))
+            current_y += line_height
+            total_finished = max(1, self.episode_count - 1)
+            success_rate = (
+                self.ep_count_landed / total_finished if total_finished > 0 else 0.0
+            )
+            stats_text1 = f"Landed:{self.ep_count_landed}({success_rate:.1%})|Crashed:{self.ep_count_crashed}"
+            stats_surf1 = self.font.render(stats_text1, True, text_color)
+            self.screen.blit(stats_surf1, (10, current_y))
+            current_y += line_height
+            stats_text2 = f"LoC:{self.ep_count_lost_control}|OoB:{self.ep_count_out_of_bounds}|Bat:{self.ep_count_battery_empty}|Timeout:{self.ep_count_timeout}"
+            stats_surf2 = self.font.render(stats_text2, True, text_color)
+            self.screen.blit(stats_surf2, (10, current_y))
+            # current_y+=line_height
 
         pygame.display.flip()
         if self.clock:
