@@ -1,12 +1,8 @@
-# Drone-2d-custom-gym-env-for-reinforcement-learning
+# Drone-2D-Custom-Gym-Environment for Reinforcement Learning with Wind Dynamics and a Moving Platform
 
-This repository contains OpenAI Gym environment designed for teaching RL
-agents the ability to control a two-dimensional drone. To make this easy
-to use, the environment has been packed into a Python package, which automatically
-registers the environment in the Gym library when the package is included in the code.
-As a result, it can be easily used in conjunction with reinforcement learning
-libraries such as StableBaselines3. There is also a sample code for training and
-evaluating agents in this environment.
+This repository provides a custom OpenAI Gym environment designed to train reinforcement learning (RL) agents to control a 2D drone. The environment includes realistic elements such as wind dynamics and a moving landing platform to increase complexity and challenge.
+
+To simplify usage, the environment is packaged as a Python module that automatically registers itself with the Gym library when imported. This allows for seamless integration with popular RL frameworks like Stable-Baselines3.
 
 <p align="center">
   <img src="media/drone_540.gif"/>
@@ -43,37 +39,19 @@ If you want to make specific changes to the source code or extend it with your
 own functionalities this method will suit you.
 
 ```
-git clone https://github.com/marek-robak/Drone-2d-custom-gym-env-for-reinforcement-learning.git
+git clone https://github.com/sebas8822/Landing_drone_RL.git
 cd Drone-2d-custom-gym-env-for-reinforcement-learning/drone_2d_custom_gym_env_package
 pip install -e .
 ```
 
-### How to use it in your code
 
-Now all you need to do to use this environment in your code is import the package.
-After that, you can use it with Gym and StableBaselines3 library via its
-id: drone-2d-custom-v0.
-
-```
-from stable_baselines3 import PPO
-import gym
-
-import drone_2d_custom_gym_env
-
-env = gym.make('drone-2d-custom-v0')
-
-model = PPO("MlpPolicy", env)
-
-model.learn(total_timesteps=1800000)
-model.save('new_agent')
-```
 
 ### Environment prerequisites
 
 Environment to run needs Python3 with Gym, Pygame, Pymunk, Numpy and StableBaselines3
 libraries. All of them are automatically installed when the package is installed.
 
-## Environment details
+<!-- ## Environment details
 
 This environment is divided into three areas marked by individual squares.
 The smallest square is a graphical representation of the space in which the drone
@@ -142,11 +120,11 @@ following formula.
 
 Variables dx and dy are the fifth and sixth values from the agent observation space.
 
-Additionally, the drone is penalized for ending the episode prematurely with -10 penalties.
+Additionally, the drone is penalized for ending the episode prematurely with -10 penalties. -->
 
 ### Environment parameters
 
-This environment provides several parameters that can change the way it works.
+<!-- This environment provides several parameters that can change the way it works.
 
 - render_sim: (bool) if true, a graphic is generated
 - render_path: (bool) if true, the drone's path is drawn
@@ -182,4 +160,4 @@ where they are located by clicking on the gifs below.
   <a href="https://github.com/mareo1208/Double-cartpole-custom-gym-env-for-reinforcement-learning.git">
     <img src="media/double_cartpole_360.gif"/>
   </a>
-</p>
+</p> -->
