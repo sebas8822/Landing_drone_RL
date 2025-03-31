@@ -33,213 +33,115 @@ class Drone2dEnv(gym.Env):
 
     def __init__(
         self,
-        render_sim: bool = False,
-        max_steps: int = 1000,
-        render_path: bool = True,
-        render_shade: bool = True,
-        shade_distance_m: float = 2.0,
-        moving_platform: bool = False,
-        platform_speed: float = 1.5,
-        initial_pos_random_range_m: float = 5.0,
-        max_allowed_tilt_angle_rad: float = np.pi / 2.0,
-        enable_wind: bool = True,
-        reward_landing: float = 100.0,
-        reward_un_landing: float = 20.0,  # Reward for unstable landing if is incresed increase the interest to do it max 100.0
+        # --- Rendering & Simulation Control ---
+        render_sim: bool = False,               # Master switch for enabling Pygame visualization. Set False for training. (Values: True, False)
+        max_steps: int = 1000,                  # Max simulation steps per episode before timeout. (Min: ~100, Rec: 500-2000)
+        render_path: bool = True,               # Draw drone's trajectory history if render_sim=True. (Values: True, False)
+        render_shade: bool = True,              # Draw drone "shades" along path if render_sim=True. Requires img/shade.png. (Values: True, False)
+        shade_distance_m: float = 2.0,          # Min distance (m) drone travels before dropping a new shade. (Min: >0, Rec: 0.5-5.0)
+        render_zoom_factor: float = 1.0,        # Visual zoom level (1.0 = fit world). Affects visuals only. (Min: >0, Rec: 0.5-3.0)
+        screen_width_px: int = 800,             # Pygame window width in pixels. (Min: ~400, Rec: 600-1600)
+        screen_height_px: int = 800 ,            # Pygame window height in pixels. (Min: ~400, Rec: 600-1200)
+        
+
+        # --- Platform Configuration ---
+        moving_platform: bool = False,          # If True, platform moves horizontally. (Values: True, False)
+        platform_speed: float = 1.5,            # Horizontal speed (m/s) of platform if moving_platform=True. (Min: 0.0, Rec: 0.5-5.0)
+
+        # --- Environment Dynamics & Constraints ---
+        initial_pos_random_range_m: float = 5.0,# Half-range (m) for randomizing start position around center. 0.0 for fixed start. (Min: 0.0, Rec: 0.0-15.0)
+        max_allowed_tilt_angle_rad: float = np.pi / 2.0, # Max absolute tilt (radians) before "Lost Control" termination. (Min: >0, Rec: pi/3-pi/2 [60-90 deg])
+        enable_wind: bool = True,               # Master switch for applying wind force. (Values: True, False)
+        wind_speed: float = 5.0,                # Base wind speed (m/s) used if enable_wind=True. (Min: 0.0, Rec: 0.0-15.0)
+        
+        # --- Reward Shaping ---
+        reward_landing: float = 100.0,          # Reward for stable, safe landing. Should be largest positive value. (Min: >0, Rec: 50-1000)
+        reward_un_landing: float = 20.0         # Reward for unstable (but safe speed/angle) landing. (Min: 0, Rec: <reward_landing, e.g., 10-50)
     ):
         """
-        Initializes the Drone Landing Environment.
-
-        Args:
-            render_sim: Enable visual rendering via Pygame.
-            max_steps: Maximum steps per episode.
-            render_path: Draw drone trajectory.
-            render_shade: Draw drone shades.
-            shade_distance_m: Distance between shades in meters.
-            moving_platform: Enable horizontal platform movement.
-            platform_speed: Speed of the platform if moving (m/s).
-            initial_pos_random_range_m: Half-range for randomizing start position (m).
-            max_allowed_tilt_angle_rad: Max tilt angle before termination (radians).
-            enable_wind: Enable wind simulation.
+        Initializes the Drone Landing Environment. Args match the parameter list above.
         """
         super().__init__()
 
+        
         # --- Store Initialization Parameters ---
-        self.render_sim = render_sim
-        self.max_steps = max_steps
-        self.render_path = render_path
-        self.render_shade = render_shade
-        self.shade_distance_m = shade_distance_m
-        self.moving_platform = moving_platform
-        self.platform_speed = (
-            platform_speed if moving_platform else 0.0
-        )  # Store actual speed based on flag
+        self.render_sim = render_sim; self.max_steps = max_steps; self.render_path = render_path
+        self.render_shade = render_shade; self.shade_distance_m = shade_distance_m
+        self.moving_platform = moving_platform; self.platform_speed = platform_speed if moving_platform else 0.0
         self.initial_pos_random_range_m = initial_pos_random_range_m
         self.max_allowed_tilt_angle_rad = max_allowed_tilt_angle_rad
         self.enable_wind = enable_wind
-        self.reward_landing = reward_landing
-        self.reward_un_landing = reward_un_landing
+        self.reward_landing = reward_landing; self.reward_un_landing = reward_un_landing
 
         # === Platform Specific State ===
-        self.platform_direction = (
-            1  # Initial direction (1=right, -1=left), randomized in reset if moving
-        )
-        self.pad_body = None  # Reference to the Pymunk body of the landing pad
+        self.platform_direction = 1; self.pad_body = None
 
         # === Environment Physics Parameters ===
-        self.gravity_mag: float = 9.81  # Acceleration due to gravity (m/s^2)
-        self.wind_speed: float = (
-            5.0 if self.enable_wind else 0.0
-        )  # Actual wind speed used (m/s), depends on enable_wind flag
-        self.wind_force_coefficient: float = (
-            0.5  # Simple factor multiplied by wind speed and drone width to calculate wind force magnitude. Tune based on desired wind effect strength.
-        )
-        # self.wind_direction is initialized in seed() using np_random for reproducibility
+        self.gravity_mag = 9.81; self.wind_speed = wind_speed if self.enable_wind else 0.0
+        self.wind_force_coefficient = 0.5
 
         # === Drone Physical Parameters ===
-        self.lander_mass: float = 1.0  # Total mass of the drone (kg)
-        self.lander_width: float = (
-            1.0  # Total width of the drone (meters, e.g., motor tip to motor tip)
-        )
-        self.lander_height: float = (
-            0.2  # Height/diameter of the motor components (meters), used for visual representation and joint placement.
-        )
-        self.initial_Battery: float = (
-            100.0  # Starting amount of battery charge (arbitrary units)
-        )
-        self.max_thrust: float = (
-            15.0  # Maximum thrust force (Newtons) EACH motor can produce. Should be > (mass * g / 2) to hover.
-        )
-        self.thrust_noise_std_dev: float = (
-            0.05  # Standard deviation of Gaussian noise added to thrust commands (as a fraction of max_thrust). Adds realism/robustness.
-        )
-        self.Battery_consumption_rate: float = (
-            0.1  # Units of battery consumed per Newton-second of total thrust applied. Controls flight time.
-        )
+        self.lander_mass = 1.0; self.lander_width = 1.0; self.lander_height = 0.2
+        self.initial_Battery = 100.0; self.max_thrust = 15.0
+        self.thrust_noise_std_dev = 0.05; self.Battery_consumption_rate = 0.1
 
         # === World Dimensions ===
-        self.world_width: float = 50.0  # Width of the simulation area (meters)
-        self.world_height: float = 50.0  # Height of the simulation area (meters)
-        self.ground_height: float = (
-            10.0  # Vertical position (Y-coordinate) of the ground surface (meters)
-        )
+        self.world_width: float = 50.0; self.world_height: float = 50.0; self.ground_height: float = 10.0
 
         # === Landing Task Parameters ===
-        self.landing_pad_width: float = 5.0  # Width of the landing platform (meters)
-        self.landing_pad_height: float = (
-            0.5  # Thickness of the landing platform (meters)
-        )
-        self.initial_landing_target_x: float = (
-            self.world_width / 2.0
-        )  # Initial X-coordinate of the landing platform's center (meters). Platform resets here if static.
-        self.landing_target_y: float = (
-            self.ground_height
-        )  # Y-coordinate of the BOTTOM of the landing platform (meters). It sits on the ground.
-        self.max_safe_landing_speed: float = (
-            1.5  # Maximum impact velocity magnitude (m/s) allowed for a safe landing.
-        )
-        self.max_safe_landing_angle: float = (
-            0.2  # Maximum absolute tilt angle (radians, approx 11 deg) allowed from vertical for a safe landing.
-        )
+        self.landing_pad_width = 5.0; self.landing_pad_height = 0.5
+        self.initial_landing_target_x = self.world_width / 2.0; self.landing_target_y = self.ground_height
+        self.max_safe_landing_speed = 1.5; self.max_safe_landing_angle = 0.2
 
         # === Simulation Timing ===
-        self.frames_per_second: int = (
-            50  # Target physics update rate (Hz). Also used for default rendering FPS.
-        )
-        self.dt: float = 1.0 / self.frames_per_second  # Simulation time step (seconds).
+        self.frames_per_second = 50; self.dt = 1.0 / self.frames_per_second
 
-        # === Internal Simulation State (Reset in self.reset()) ===
-        self.current_step: int = 0  # Counter for steps within the current episode.
-        self.landed_safely: bool = (
-            False  # Flag indicating successful landing in the current episode.
-        )
-        self.crashed: bool = (
-            False  # Flag indicating a crash (ground or hard pad collision) in the current episode.
-        )
-        self.Battery_empty: bool = (
-            False  # Flag indicating the battery ran out in the current episode.
-        )
-        self.out_of_bounds: bool = (
-            False  # Flag indicating the drone went outside world boundaries.
-        )
-        self.lost_control: bool = (
-            False  # Flag indicating the drone exceeded the tilt angle limit.
-        )
-        self.current_left_thrust_applied: float = (
-            0.0  # Actual thrust applied by the left motor in the last step (for rendering).
-        )
-        self.current_right_thrust_applied: float = (
-            0.0  # Actual thrust applied by the right motor in the last step (for rendering).
-        )
-        self.info: dict = (
-            {}
-        )  # Dictionary for auxiliary diagnostic information returned by step().
+        # === Internal Simulation State ===
+        self.current_step = 0; self.landed_safely = False; self.crashed = False
+        self.Battery_empty = False; self.out_of_bounds = False; self.lost_control = False
+        self.current_left_thrust_applied = 0.0; self.current_right_thrust_applied = 0.0
+        self.info = {}; self.current_Battery = self.initial_Battery
 
-        # === Rendering Specific State (Reset in self.reset()) ===
-        self.screen_width_px: int = 800  # Width of the Pygame window in pixels.
-        self.screen_height_px: int = 800  # Height of the Pygame window in pixels.
-        self.pixels_per_meter: float = min(
-            self.screen_width_px / self.world_width,
-            self.screen_height_px / self.world_height,
-        )  # Scale factor for rendering meters->pixels.
-        self.screen: pygame.Surface | None = None  # Pygame display surface object.
-        self.clock: pygame.time.Clock | None = (
-            None  # Pygame clock object for controlling FPS.
-        )
-        self.font: pygame.font.Font | None = (
-            None  # Pygame font object for rendering text.
-        )
-        self.shade_image: pygame.Surface | None = (
-            None  # Loaded and scaled Pygame surface for the drone shade image.
-        )
-        self.flight_path_px: list = (
-            []
-        )  # List storing historical drone positions in PIXEL coordinates for path rendering.
-        self.path_drone_shade_info: list = (
-            []
-        )  # List storing [world_x, world_y, angle_rad] for each rendered shade.
-        self.last_shade_pos: Vec2d | None = (
-            None  # World position (Vec2d) where the last shade was dropped.
-        )
+        # === Rendering Setup === MODIFIED ===
+        self.screen_width_px = screen_width_px * render_zoom_factor  # Use parameter
+        self.screen_height_px = screen_height_px * render_zoom_factor    # Use parameter
+        # Calculate base pixels per meter to fit world in screen
+        base_ppm_x = self.screen_width_px / self.world_width if self.world_width > 0 else 1
+        base_ppm_y = self.screen_height_px / self.world_height if self.world_height > 0 else 1
+        # Apply zoom factor
+        self.pixels_per_meter = min(base_ppm_x, base_ppm_y) * render_zoom_factor # Apply zoom
+        print(f"World Size: {self.world_width}m x {self.world_height}m")
+        print(f"Screen Size: {self.screen_width_px}px x {self.screen_height_px}px")
+        print(f"Render Zoom Factor: {render_zoom_factor}")
+        print(f"Effective Pixels Per Meter: {self.pixels_per_meter:.2f}")
 
-        # --- Persistent Episode Counters ---
-        self.episode_count: int = 0  # Total episodes
-        self.ep_count_landed: int = 0  # Landed
-        self.ep_count_crashed: int = 0  # Crashed
-        self.ep_count_lost_control: int = 0  # LoC
-        self.ep_count_out_of_bounds: int = 0  # OoB
-        self.ep_count_battery_empty: int = 0  # Bat
-        self.ep_count_timeout: int = 0  # Timeout
-        if self.render_sim:
-            self.init_pygame()
+        self.screen = None; self.clock = None; self.font = None; self.shade_image = None
+        # --- End Rendering Setup Modification ---
 
-        # === Action & Observation Spaces ===
-        min_action = np.array([-1.0, -1.0], dtype=np.float32)
-        max_action = np.array([1.0, 1.0], dtype=np.float32)
-        self.action_space = spaces.Box(
-            low=min_action, high=max_action, dtype=np.float32
-        )
-        obs_dim = 11
-        if self.moving_platform:
-            obs_dim = 12
-        obs_low_list = [-1, -1, -1, -1, -1, -1, 0, -1, -1, -1, 0.0]
-        obs_high_list = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1.0]
-        if self.moving_platform:
-            obs_low_list.append(-1)
-            obs_high_list.append(1)
-        obs_low = np.array(obs_low_list, dtype=np.float32)
-        obs_high = np.array(obs_high_list, dtype=np.float32)
-        self.observation_space = spaces.Box(
-            low=obs_low, high=obs_high, dtype=np.float32
-        )
-        print(f"Observation Space Size: {self.observation_space.shape}")
+        # === Path and Shade Tracking ===
+        self.flight_path_px = []; self.path_drone_shade_info = []; self.last_shade_pos = None
+
+        # === Persistent Episode Counters ===
+        self.episode_count = 0; self.ep_count_landed = 0; self.ep_count_crashed = 0
+        self.ep_count_lost_control = 0; self.ep_count_out_of_bounds = 0
+        self.ep_count_battery_empty = 0; self.ep_count_timeout = 0
+
+        if self.render_sim: self.init_pygame() # Must be after pixels_per_meter is set
+
+        # === Action & Observation Spaces === (Definition unchanged)
+        min_action = np.array([-1.0, -1.0], dtype=np.float32); max_action = np.array([1.0, 1.0], dtype=np.float32)
+        self.action_space = spaces.Box(low=min_action, high=max_action, dtype=np.float32)
+        obs_dim = 11;
+        if self.moving_platform: obs_dim = 12
+        obs_low_list = [-1,-1,-1,-1,-1,-1,0,-1,-1,-1,0.0]; obs_high_list = [1,1,1,1,1,1,1,1,1,1,1.0]
+        if self.moving_platform: obs_low_list.append(-1); obs_high_list.append(1)
+        obs_low = np.array(obs_low_list, dtype=np.float32); obs_high = np.array(obs_high_list, dtype=np.float32)
+        self.observation_space = spaces.Box(low=obs_low, high=obs_high, dtype=np.float32)
+        # print(f"Observation Space Size: {self.observation_space.shape}") # Keep less verbose
 
         # --- Initialize Physics ---
-        self.space = None
-        self.drone = None
-        self.landing_pad_shape = None
-        self.ground_shape = None
-        self.seed()
-        self.reset()  # Initial reset
+        self.space = None; self.drone = None; self.landing_pad_shape = None; self.ground_shape = None
+        self.seed(); self.reset()
 
     # seed, _world_to_screen, _screen_to_world, init_pygame, init_pymunk, _add_position_to_path, _add_drone_shade, collision_begin, collision_separate, _apply_forces, _get_observation, _calculate_reward methods remain the same...
     def seed(self, seed=None):
