@@ -43,7 +43,9 @@ class Drone2dEnv(gym.Env):
         screen_width_px: int = 800,             # Pygame window width in pixels. (Min: ~400, Rec: 600-1600)
         screen_height_px: int = 800 ,            # Pygame window height in pixels. (Min: ~400, Rec: 600-1200)
         
-
+        # ---  WORLD Gravity ---                
+        gravity_mag: float = 9.81,              # World Gravity
+        
         # --- Platform Configuration ---
         moving_platform: bool = False,          # If True, platform moves horizontally. (Values: True, False)
         platform_speed: float = 1.5,            # Horizontal speed (m/s) of platform if moving_platform=True. (Min: 0.0, Rec: 0.5-5.0)
@@ -53,8 +55,17 @@ class Drone2dEnv(gym.Env):
         max_allowed_tilt_angle_rad: float = np.pi / 2.0, # Max absolute tilt (radians) before "Lost Control" termination. (Min: >0, Rec: pi/3-pi/2 [60-90 deg])
         enable_wind: bool = True,               # Master switch for applying wind force. (Values: True, False)
         wind_speed: float = 5.0,                # Base wind speed (m/s) used if enable_wind=True. (Min: 0.0, Rec: 0.0-15.0)
-        lander_mass :float =  1.5,               #  measured in kilograms 
         
+        
+        
+        # --- Drone Parameters ---        
+        lander_mass :float =  1.5,               #  measured in kilograms 
+        lander_width : float = 1.0,              # width in meters
+        lander_height : float = 1.0,              # height in meters
+        max_thrust: float = 15.0,                 # This is the maximum force that the drone's thrusters can produce # The unit is likely Newtons (N). This limits the drone's ability to accelerate and counteract gravity
+        thrust_noise: float = 0.1,                # This parameter likely introduces some random variation or noise to the applied thrust. A value of 0.1 could represent a percentage or a standard deviation relative to the commanded thrust. This adds realism to the simulation.
+        max_safe_landing_speed: float = 1.5,      # (initialized to 1.5) defines the maximum allowed speed of the drone upon impact with the landing pad for a landing to be considered "safe".
+        max_safe_landing_angle: float = 0.2,     # (initialized to 0.2 radians) defines the maximum allowed tilt angle of the drone upon impact with the landing pad for a landing to be considered "safe".
         
         # --- Reward Shaping ---
         reward_landing: float = 100.0,          # Reward for stable, safe landing. Should be largest positive value. (Min: >0, Rec: 50-1000)
@@ -62,30 +73,49 @@ class Drone2dEnv(gym.Env):
     ):
         """
         Initializes the Drone Landing Environment. Args match the parameter list above.
+        
+        Safe Landing Criteria within collision_begin:
+
+        Inside collision_begin, specifically when is_pad_collision is True, the code checks two crucial parameters of the drone's body (drone_body):
+
+        Velocity: velocity.length < self.max_safe_landing_speed
+
+        self.max_safe_landing_speed (initialized to 1.5) defines the maximum allowed speed of the drone upon impact with the landing pad for a landing to be considered "safe".
+
+        Angle: angle < self.max_safe_landing_angle
+
+        self.max_safe_landing_angle (initialized to 0.2 radians) defines the maximum allowed tilt angle of the drone upon impact with the landing pad for a landing to be considered "safe".
+        
+        
         """
         super().__init__()
 
         
         # --- Store Initialization Parameters ---
-        self.render_sim = render_sim; self.max_steps = max_steps; self.render_path = render_path
-        self.render_shade = render_shade; self.shade_distance_m = shade_distance_m
-        self.moving_platform = moving_platform; self.platform_speed = platform_speed if moving_platform else 0.0
+        self.render_sim = render_sim
+        self.max_steps = max_steps
+        self.render_path = render_path
+        self.render_shade = render_shade
+        self.shade_distance_m = shade_distance_m
+        self.moving_platform = moving_platform
+        self.platform_speed = platform_speed if moving_platform else 0.0
         self.initial_pos_random_range_m = initial_pos_random_range_m
         self.max_allowed_tilt_angle_rad = max_allowed_tilt_angle_rad
         self.enable_wind = enable_wind
-        self.reward_landing = reward_landing; self.reward_un_landing = reward_un_landing
+        self.reward_landing = reward_landing
+        self.reward_un_landing = reward_un_landing
 
         # === Platform Specific State ===
         self.platform_direction = 1; self.pad_body = None
 
         # === Environment Physics Parameters ===
-        self.gravity_mag = 9.81; self.wind_speed = wind_speed if self.enable_wind else 0.0
+        self.gravity_mag = gravity_mag; self.wind_speed = wind_speed if self.enable_wind else 0.0
         self.wind_force_coefficient = 0.5
 
         # === Drone Physical Parameters ===
-        self.lander_mass = lander_mass; self.lander_width = 1.0; self.lander_height = 0.2
-        self.initial_Battery = 100.0; self.max_thrust = 15.0
-        self.thrust_noise_std_dev = 0.05; self.Battery_consumption_rate = 0.1
+        self.lander_mass = lander_mass; self.lander_width = lander_width; self.lander_height = lander_height
+        self.initial_Battery = 100.0; self.max_thrust = max_thrust
+        self.thrust_noise_std_dev = thrust_noise; self.Battery_consumption_rate = 0.1
 
         # === World Dimensions ===
         self.world_width: float = 50.0; self.world_height: float = 50.0; self.ground_height: float = 10.0
@@ -93,7 +123,7 @@ class Drone2dEnv(gym.Env):
         # === Landing Task Parameters ===
         self.landing_pad_width = 5.0; self.landing_pad_height = 0.5
         self.initial_landing_target_x = self.world_width / 2.0; self.landing_target_y = self.ground_height
-        self.max_safe_landing_speed = 1.5; self.max_safe_landing_angle = 0.2
+        self.max_safe_landing_speed = max_safe_landing_speed; self.max_safe_landing_angle = max_safe_landing_angle
 
         # === Simulation Timing ===
         self.frames_per_second = 50; self.dt = 1.0 / self.frames_per_second
