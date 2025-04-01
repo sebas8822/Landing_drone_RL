@@ -53,6 +53,8 @@ class Drone2dEnv(gym.Env):
         max_allowed_tilt_angle_rad: float = np.pi / 2.0, # Max absolute tilt (radians) before "Lost Control" termination. (Min: >0, Rec: pi/3-pi/2 [60-90 deg])
         enable_wind: bool = True,               # Master switch for applying wind force. (Values: True, False)
         wind_speed: float = 5.0,                # Base wind speed (m/s) used if enable_wind=True. (Min: 0.0, Rec: 0.0-15.0)
+        lander_mass :float =  1.5,               #  measured in kilograms 
+        
         
         # --- Reward Shaping ---
         reward_landing: float = 100.0,          # Reward for stable, safe landing. Should be largest positive value. (Min: >0, Rec: 50-1000)
@@ -81,7 +83,7 @@ class Drone2dEnv(gym.Env):
         self.wind_force_coefficient = 0.5
 
         # === Drone Physical Parameters ===
-        self.lander_mass = 1.0; self.lander_width = 1.0; self.lander_height = 0.2
+        self.lander_mass = lander_mass; self.lander_width = 1.0; self.lander_height = 0.2
         self.initial_Battery = 100.0; self.max_thrust = 15.0
         self.thrust_noise_std_dev = 0.05; self.Battery_consumption_rate = 0.1
 
