@@ -55,16 +55,15 @@ class Drone2dEnv(gym.Env):
         initial_pos_random_range_m: float = 5.0,# Half-range (m) for randomizing start position around center. 0.0 for fixed start. (Min: 0.0, Rec: 0.0-15.0)
         max_allowed_tilt_angle_rad: float = np.pi / 2.0, # Max absolute tilt (radians) before "Lost Control" termination. (Min: >0, Rec: pi/3-pi/2 [60-90 deg])
         
-        # --- Wind dynamics        
+        # --- Wind dynamics ---       
         enable_wind: bool = True,               # Master switch for applying wind force. (Values: True, False)
         wind_speed: float = 5.0,                # Base wind speed (m/s) used if enable_wind=True. (Min: 0.0, Rec: 0.0-15.0)
         
-        # --- Wind Advance (NO IMPLEMENTD YET) ---
+        # --- Wind Advance ---
         enable_dynamic_wind: bool = False,      # If True, wind speed/direction can change during the episode.
         dynamic_wind_change_prob: float = 0.005, # Probability per step of triggering a wind change (if dynamic wind enabled).
-        dynamic_wind_speed_range: tuple = (0.0, 8.0), # Min/Max wind speed (m/s) when a dynamic change occurs.
+        dynamic_wind_speed_range: tuple = (0.0, 20.0), # Min/Max wind speed (m/s) when a dynamic change occurs.
         dynamic_wind_change_both: bool = False, # If True, change speed & direction together; False, change one randomly.
-               
                
         
         # --- Drone Parameters ---        
@@ -116,12 +115,20 @@ class Drone2dEnv(gym.Env):
         self.reward_un_landing = reward_un_landing
         self.reward_pad_contact = reward_pad_contact
         self.randomize_pad_position = randomize_pad_position #if not moving_platform else False
+        self.enable_dynamic_wind = enable_dynamic_wind
+        self.dynamic_wind_change_prob = dynamic_wind_change_prob
+        self.dynamic_wind_speed_range = dynamic_wind_speed_range
+        self.dynamic_wind_change_both = dynamic_wind_change_both
 
         # === Platform Specific State ===
         self.platform_direction = 1; self.pad_body = None
 
         # === Environment Physics Parameters ===
-        self.gravity_mag = gravity_mag; self.wind_speed = wind_speed if self.enable_wind else 0.0
+        self.gravity_mag = gravity_mag
+        # Store initial wind speed (might be overridden by dynamic wind later)
+        self.wind_speed = wind_speed if self.enable_wind else 0.0
+        # Initial wind direction (will be set in seed/reset, might be overridden)
+        self.wind_direction = 0.0
         self.wind_force_coefficient = 0.5
 
         # === Drone Physical Parameters ===
@@ -190,6 +197,9 @@ class Drone2dEnv(gym.Env):
         self.space = None; self.drone = None; self.landing_pad_shape = None; self.ground_shape = None
         self.seed(); self.reset()
 
+    
+        
+    
     # seed, _world_to_screen, _screen_to_world, init_pygame, init_pymunk, _add_position_to_path, _add_drone_shade, collision_begin, collision_separate, _apply_forces, _get_observation, _calculate_reward methods remain the same...
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -471,6 +481,44 @@ class Drone2dEnv(gym.Env):
     def collision_separate(self, arbiter, space, data):
         self.drone_contacts -= 1
         self.drone_contacts = max(0, self.drone_contacts)
+    
+    def _apply_dynamic_wind_change(self):
+        """
+        Applies a random change to the wind speed and/or direction based on
+        the dynamic wind parameters. Called probabilistically during the step.
+        """
+        # Decide whether to change speed, direction, or both
+        change_speed = False
+        change_direction = False
+
+        if self.dynamic_wind_change_both:
+            change_speed = True
+            change_direction = True
+        else:
+            # Randomly choose to change either speed or direction
+            choice = self.np_random.choice(["speed", "direction"])
+            if choice == "speed":
+                change_speed = True
+            else:
+                change_direction = True
+
+        # Apply the changes
+        new_speed_str = f"{self.wind_speed:.2f} m/s" # Keep old value for log if not changed
+        new_dir_str = f"{np.degrees(self.wind_direction):.1f}°" # Keep old value for log if not changed
+
+        if change_speed:
+            min_w, max_w = self.dynamic_wind_speed_range
+            self.wind_speed = self.np_random.uniform(min_w, max_w)
+            # Ensure the main enable_wind flag reflects if there *is* wind speed now
+            # self.enable_wind = self.wind_speed > 0 # Optional: auto-enable if speed > 0? Or rely on initial setting? Let's rely on initial self.enable_wind for now.
+            new_speed_str = f"{self.wind_speed:.2f} m/s (Changed!)"
+
+        if change_direction:
+            self.wind_direction = self.np_random.uniform(0, 2 * np.pi)
+            new_dir_str = f"{np.degrees(self.wind_direction):.1f}° (Changed!)"
+
+        # Optional: Print a message when wind changes for debugging/observation
+        print(f"Step {self.current_step}: Dynamic Wind Change! New State -> Speed: {new_speed_str}, Direction: {new_dir_str}")
 
     def _apply_forces(self, action):
         left_thrust_cmd = (action[0] + 1.0) / 2.0 * self.max_thrust
@@ -509,6 +557,8 @@ class Drone2dEnv(gym.Env):
             self.drone.body.apply_force_at_world_point(
                 wind_force, self.drone.body.position
             )
+    
+    
 
     def _get_observation(self):
         platform_pos_x = self.initial_landing_target_x
@@ -763,10 +813,16 @@ class Drone2dEnv(gym.Env):
                 self.observation_space.shape, dtype=self.observation_space.dtype
             )
             return dummy_obs, 0.0, True, {"error": "Drone not initialized"}
+        
+        if self.enable_dynamic_wind and self.enable_wind: # Only apply if both master switches are on
+            if self.np_random.rand() < self.dynamic_wind_change_prob:
+                self._apply_dynamic_wind_change()
+        
         self._update_platform_position()
         self._apply_forces(action)
         self.space.step(self.dt)
-
+        
+            
         # --- Calculate distance AND target point for info dict ---
         platform_pos_x = self.initial_landing_target_x
         platform_target_y = self.landing_target_y + self.landing_pad_height
@@ -822,24 +878,26 @@ class Drone2dEnv(gym.Env):
         }
         return observation, reward, done, self.info
 
-    # MODIFIED reset
+    
     def reset(self):
         # --- Increment Episode Counter ---
         self.episode_count += 1
-        # --- End Increment ---
 
+        # --- Clear Physics Space ---
         if self.space:
+            # Remove all bodies, shapes, and constraints from the space
             for body in list(self.space.bodies):
                 self.space.remove(body)
             for shape in list(self.space.shapes):
                 self.space.remove(shape)
             for constraint in list(self.space.constraints):
                 self.space.remove(constraint)
+        # Nullify references to ensure cleanup
         self.space = None
         self.drone = None
         self.pad_body = None
 
-        # Reset PER-EPISODE state vars (DO NOT RESET COUNTERS)
+        # --- Reset Per-Episode State Variables ---
         self.current_step = 0
         self.landed_safely = False
         self.crashed = False
@@ -852,44 +910,55 @@ class Drone2dEnv(gym.Env):
         self.current_right_thrust_applied = 0.0
         self.just_collided_with_pad = False
 
-        # Reset path/shade
+        # --- Reset Rendering Trackers ---
         self.flight_path_px = []
         self.path_drone_shade_info = []
         self.last_shade_pos = None
 
-        # Randomize wind/platform direction
+        # --- Set Initial Random Directions for Episode ---
+        # Set the INITIAL wind direction (dynamic changes happen in step)
         self.wind_direction = self.np_random.uniform(0, 2 * np.pi)
+        # Set the INITIAL platform movement direction (if applicable)
         if self.moving_platform:
             self.platform_direction = self.np_random.choice([-1, 1])
         else:
-            self.platform_direction = 1
+            self.platform_direction = 1 # Default direction if not moving
 
-        # Re-init pymunk
-        self.init_pymunk()
-        # Add initial path/shade
+        # --- Re-initialize Physics Engine with New State ---
+        self.init_pymunk() # Sets up ground, pad (potentially random pos), and drone (random pos)
+
+        # --- Initialize Path/Shade Rendering ---
         if self.drone:
-            self._add_position_to_path()
-            self._add_drone_shade()
+            self._add_position_to_path() # Add starting position to path
+            self._add_drone_shade()      # Add starting shade
         else:
-            print("Error: Drone not created during reset.")
+            # This should ideally not happen if init_pymunk is successful
+            print("Error: Drone object not created during reset.")
 
-        # --- Print Reset Info (less frequent maybe) ---
-        if (
-            self.episode_count % 10 == 1 or self.episode_count <= 1
-        ):  # Print every 10 eps or first ep
+        # --- Optional: Print Reset Information ---
+        if (self.episode_count % 10 == 1 or self.episode_count <= 1):
             print(f"\n--- Resetting Episode {self.episode_count} ---")
-            print(
-                f"Wind Enabled: {self.enable_wind}, Wind Dir: {np.degrees(self.wind_direction):.1f} deg. Moving Platform: {self.moving_platform}"
-            )
-        # --- End Print ---
+            # Provide informative output about the episode's starting conditions
+            wind_info = f"Wind Enabled: {self.enable_wind}"
+            if self.enable_wind:
+                wind_info += f", Initial Dir: {np.degrees(self.wind_direction):.1f} deg"
+                wind_info += f", Initial Speed: {self.wind_speed:.2f} m/s" # Note: Shows initial speed
+                wind_info += f", Dynamic Wind: {self.enable_dynamic_wind}"
+            platform_info = f"Moving Platform: {self.moving_platform}"
+            if self.moving_platform:
+                 platform_info += f", Speed: {self.platform_speed} m/s"
+            pad_random_info = f"Random Pad Pos: {self.randomize_pad_position}"
 
-        # Return initial observation
+            print(f"{wind_info} | {platform_info} | {pad_random_info}")
+            # You might want to print the actual starting pad position if randomized,
+            # which could be fetched from self.pad_body.position after init_pymunk if needed here.
+
+        # --- Return Initial Observation ---
         if self.drone:
             return self._get_observation()
         else:
-            return np.zeros(
-                self.observation_space.shape, dtype=self.observation_space.dtype
-            )
+            # Return a zero observation if drone creation failed
+            return np.zeros(self.observation_space.shape, dtype=self.observation_space.dtype)
 
     def render(self, mode="human"):
         if not self.render_sim or self.screen is None:
