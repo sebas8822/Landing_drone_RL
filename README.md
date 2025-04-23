@@ -3,11 +3,11 @@
 This repository provides a custom OpenAI Gym environment designed to train reinforcement learning (RL) agents to control a 2D drone. The environment includes realistic elements such as wind dynamics and a moving landing platform to increase complexity and challenge.
 
 To simplify usage, the environment is packaged as a Python module that automatically registers itself with the Gym library when imported. This allows for seamless integration with popular RL frameworks like Stable-Baselines3.
-
+```
 <p align="center">
   <img src="media/drone_540.gif"/>
 </p>
-
+```
 ## Installation
 
 These instructions will guide you through installation of the environment and
